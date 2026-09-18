@@ -1,0 +1,8 @@
+# Only needed for BOOKLY_DATA_BACKEND=live (app/snowflake_client.py). The
+# default in-memory mock backend (app/mock_snowflake.py) needs none of this,
+# so it's kept out of requirements.txt on purpose -- installing it shouldn't
+# be a prerequisite for just trying the app.
+-r requirements.txt
+snowflake-connector-python>=3.12.0
+snowflake-core>=1.0.0
+cryptography>=41.0.0

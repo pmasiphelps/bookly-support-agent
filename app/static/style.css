@@ -1,0 +1,191 @@
+:root {
+  color-scheme: light;
+  --bg: #f4f1ea;
+  --panel: #ffffff;
+  --ink: #2b2620;
+  --muted: #7a7266;
+  --accent: #a8563d;
+  --accent-ink: #ffffff;
+  --bubble-user: #2b2620;
+  --bubble-user-ink: #ffffff;
+  --bubble-agent: #efe9de;
+  --border: #e3ddce;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  display: flex;
+  justify-content: center;
+  padding: 24px 16px;
+}
+
+.chat-shell {
+  width: 100%;
+  max-width: 560px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  height: min(720px, calc(100vh - 48px));
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+}
+
+header {
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.brand { font-size: 1.05rem; font-weight: 700; }
+.subtitle { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+
+.dev-toggle {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.dev-toggle:hover { opacity: 0.85; }
+
+.dev-toggle.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.msg {
+  max-width: 82%;
+  padding: 10px 14px;
+  border-radius: 14px;
+  line-height: 1.4;
+  font-size: 0.92rem;
+  white-space: pre-wrap;
+}
+
+.msg.user {
+  align-self: flex-end;
+  background: var(--bubble-user);
+  color: var(--bubble-user-ink);
+  border-bottom-right-radius: 4px;
+}
+
+.msg.agent {
+  align-self: flex-start;
+  background: var(--bubble-agent);
+  color: var(--ink);
+  border-bottom-left-radius: 4px;
+}
+
+.msg.pending { opacity: 0.6; }
+
+.composer {
+  display: flex;
+  gap: 8px;
+  padding: 14px;
+  border-top: 1px solid var(--border);
+}
+
+#input {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  font-size: 0.92rem;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+button {
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: none;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:hover { opacity: 0.9; }
+
+/* Quick-reply buttons for the scope gate's "unclear" outcome (see
+   app/intent_router.py's CLARIFYING_SUGGESTIONS). Deliberately lighter
+   than the Send button above -- these are optional shortcuts sitting in
+   the message flow, not the primary action. */
+.suggestions {
+  align-self: flex-start;
+  max-width: 82%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.suggestion-btn {
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  background: var(--panel);
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.suggestion-btn:hover { background: var(--accent); color: var(--accent-ink); opacity: 1; }
+
+/* Per-turn tool-call trace -- hidden unless the header's "Dev: show tool
+   calls" toggle is on (see app.js), which adds .show-tool-calls to body.
+   Dark/monospace on purpose: a visually distinct "debug" register, not
+   part of the actual conversation. */
+.tool-trace {
+  display: none;
+  align-self: flex-start;
+  max-width: 92%;
+  background: #211c15;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.show-tool-calls .tool-trace { display: block; }
+
+.tool-trace-label {
+  color: #cbb89a;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.65rem;
+  margin-bottom: 6px;
+}
+
+.tool-trace-entry {
+  margin: 0 0 8px;
+  color: #e8dfd0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tool-trace-entry:last-child { margin-bottom: 0; }

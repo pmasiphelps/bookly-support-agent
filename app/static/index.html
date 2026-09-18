@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bookly Support</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="chat-shell">
+    <header>
+      <div>
+        <div class="brand">📚 Bookly Support</div>
+        <div class="subtitle">Order status &middot; Returns &middot; General questions</div>
+      </div>
+      <button
+        id="devToggle"
+        type="button"
+        class="dev-toggle"
+        title="Show the real tool calls behind each reply"
+      >Dev: show tool calls</button>
+    </header>
+
+    <div id="messages" class="messages"></div>
+
+    <form id="composer" class="composer">
+      <input
+        id="input"
+        type="text"
+        autocomplete="off"
+        placeholder="e.g. Where's my order? / I'd like to return a book"
+      />
+      <button type="submit">Send</button>
+    </form>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
