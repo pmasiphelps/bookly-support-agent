@@ -84,7 +84,7 @@ POLICY_DOCS = [
     {"topic": "shipping", "title": "Late or missing packages",
      "content": "If tracking shows delivered but the customer says the package never arrived, or tracking hasn't updated in 5+ business days, treat it as lost in transit: offer a free reshipment or a full refund, the customer's choice. Do not make them wait out the carrier's own claims process first."},
     {"topic": "returns", "title": "30-day return window",
-     "content": "Books can be returned within 30 days of delivery for a full refund, as long as they are in resellable condition. After 30 days we cannot offer a refund, but store credit may be available case-by-case -- escalate that to a human agent."},
+     "content": "Books can be returned within 30 days of delivery for a full refund, as long as they are in resellable condition. After 30 days we cannot offer a refund."},
     {"topic": "returns", "title": "Damaged, defective, or wrong item",
      "content": "If a book arrives damaged, defective, or isn't what the customer ordered, waive the resellable-condition requirement and process the return or replacement immediately. Don't require the customer to ship the damaged item back before a refund or replacement goes out."},
     {"topic": "returns", "title": "Returning a gift",

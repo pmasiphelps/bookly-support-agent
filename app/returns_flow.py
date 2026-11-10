@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 
 import anthropic
 
-from . import tools
+from . import telemetry, tools
 
 if TYPE_CHECKING:
     from .agent import Session
@@ -122,7 +122,9 @@ def _extract_order_id(text: str) -> str | None:
 
 def _extract_email(text: str) -> str | None:
     match = _EMAIL_RE.search(text)
-    return match.group(0) if match else None
+    # The pattern allows dots in the domain, so an email ending a sentence
+    # ("my email is dave@bookly-demo.com.") would keep the period.
+    return match.group(0).rstrip(".") if match else None
 
 
 def looks_like_a_continuation(session: "Session", user_text: str) -> bool:
@@ -156,6 +158,22 @@ def _match_item(text: str, items: list[dict[str, Any]]) -> dict[str, Any] | None
     title_matches = [item for item in items if item["book_title"].lower() in lowered]
     if len(title_matches) == 1:
         return title_matches[0]
+    if len(title_matches) > 1:
+        return None
+
+    # Accept a unique contiguous title fragment, e.g. "hail mary".
+    # Whole words avoid matching "une" to "Dune"; ties still re-ask.
+    words = re.findall(r"\w+", lowered)
+    if words:
+        partial_matches = [
+            item for item in items
+            if " " + " ".join(words) + " "
+            in " " + " ".join(re.findall(r"\w+", item["book_title"].lower())) + " "
+        ]
+        if len(partial_matches) == 1:
+            return partial_matches[0]
+        if len(partial_matches) > 1:
+            return None
 
     for word in lowered.replace(",", " ").split():
         idx = _ORDINAL_WORDS.get(word)
@@ -193,6 +211,8 @@ def _flatten_text(content: Any) -> str | None:
 def _conversation_text(messages: list[dict[str, Any]]) -> str:
     lines = []
     for msg in messages[-MAX_REASON_CONTEXT_MESSAGES:]:
+        if msg.get("role") == "system":
+            continue  # operator context for the agent loop, not dialogue
         text = _flatten_text(msg.get("content"))
         if not text:
             continue
@@ -214,7 +234,9 @@ def _summarize_reason(session: "Session") -> str:
         else "The customer gave no other context. Summarize their reason for this return."
     )
 
-    response = _get_client().messages.create(
+    response = telemetry.create_message(
+        _get_client(),
+        "return_reason",
         model=REASON_MODEL,
         max_tokens=REASON_MAX_TOKENS,
         system=_REASON_SYSTEM_PROMPT,
@@ -244,7 +266,11 @@ def _call_tool(name: str, tool_input: dict[str, Any], session: "Session") -> dic
     else:
         email = tool_input.get("email")
         if email and "error" not in result:
-            session.verified_email = email.strip().lower()
+            session.remember_verified_context(tool_input)
+
+    # Remembered so app/agent.py can refuse to escalate this return past the
+    # eligibility rule (see _blocked_escalation there).
+    session.note_ineligible_return(name, tool_input, result)
 
     session.tool_calls.append({"name": name, "input": tool_input, "result": result})
     return result
@@ -255,8 +281,31 @@ def advance_return_flow(session: "Session", user_text: str) -> str:
     the reply text. app/agent.py has already appended the customer's
     message to session.messages before calling this."""
     flow = session.return_flow
+    explicit_email = _extract_email(user_text)
+    explicit_order = _extract_order_id(user_text)
+    if flow is not None and (
+        (explicit_order and explicit_order != flow.order_id)
+        or (explicit_email and explicit_email.lower() != (flow.email or "").lower())
+    ):
+        # Corrections during a flow invalidate its cached order, chosen
+        # item and return ID, and must go through identity checks again.
+        flow = ReturnFlow(
+            order_id=explicit_order or flow.order_id,
+            email=explicit_email or flow.email,
+        )
+        session.return_flow = flow
     if flow is None:
-        flow = ReturnFlow()
+        # A new account or an explicit request for another order must not
+        # silently inherit the old account's order. Re-fetch below rather
+        # than using a cached eligibility or identity result.
+        same_account = not explicit_email or explicit_email.lower() == session.verified_email
+        different_order = bool(re.search(r"\b(another|different|other)\s+order\b", user_text, re.I))
+        flow = ReturnFlow(
+            email=explicit_email or session.verified_email,
+            order_id=explicit_order or (
+                session.verified_order_id if same_account and not different_order else None
+            ),
+        )
         session.return_flow = flow
 
     def _finish(reply: str, *, reset: bool = False) -> str:
@@ -327,11 +376,7 @@ def advance_return_flow(session: "Session", user_text: str) -> str:
             session,
         )
         if "error" in result:
-            return _finish(
-                f"{result['message']} I'll note this for a human agent to review if you'd like -- "
-                "just let me know.",
-                reset=True,
-            )
+            return _finish(result["message"], reset=True)
         flow.filed_return_id = result["return_id"]
         return _finish(
             f"Done -- I've filed a return for \"{result['book_title']}\" (return {result['return_id']}), "

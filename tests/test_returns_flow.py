@@ -104,7 +104,9 @@ def test_return_window_expired_gives_the_guardrail_not_a_retry():
 
     result = agent.run_turn(session, "I'd like to return something from order BK-1004, my email is dave@bookly-demo.com")
 
-    assert "human agent" in result.reply
+    assert "30-day" in result.reply
+    assert "review" not in result.reply
+    assert "human agent" not in result.reply
     assert session.return_flow is None
     assert mock_snowflake.RETURNS == []
 
@@ -175,17 +177,99 @@ def test_messages_are_recorded_as_a_normal_user_then_assistant_turn():
     assert "order ID" in session.messages[1]["content"]
 
 
-def test_a_second_return_in_the_same_session_starts_a_clean_flow():
+def test_a_second_return_reuses_identity_but_starts_with_no_item_selected():
     session = agent.Session(session_id="s1")
     agent.run_turn(session, "I'd like to return The Hobbit from order BK-1001, my email is alice@bookly-demo.com")
     agent.run_turn(session, "no thanks")  # finishes and resets the first return
 
-    # A second, unrelated return in the same session shouldn't carry over
-    # the first one's order_id/email/item.
     result = agent.run_turn(session, "I want to return something")
 
+    assert "Which one" in result.reply
+    assert session.return_flow.order_id == "BK-1001"
+    assert session.return_flow.email == "alice@bookly-demo.com"
+    assert session.return_flow.order_item_id is None
+
+
+def test_order_lookup_context_survives_topic_changes_and_quick_reply():
+    session = agent.Session(session_id="s1")
+    agent._execute_tool("get_order_status", {
+        "order_id": "BK-1002", "email": "bob@bookly-demo.com",
+    }, session)
+    session.messages.extend([
+        {"role": "user", "content": "What's the return policy?"},
+        {"role": "assistant", "content": "You can return delivered books within 30 days."},
+    ])
+    agent.run_turn_for_category(session, "write me a linked list", "out_of_scope")
+
+    result = agent.run_turn_for_category(session, "I'd like to return something", "returns_refunds")
+
+    assert "Project Hail Mary" in result.reply
+    assert "Which one" in result.reply
+    assert [call["name"] for call in result.tool_calls] == ["get_order_status"]
+    assert result.tool_calls[0]["input"] == {
+        "order_id": "BK-1002", "email": "bob@bookly-demo.com",
+    }
+    result = agent.run_turn(session, "hail mary")
+    assert "hasn't been delivered" in result.reply
+    assert "Which one" not in result.reply
+    assert "review" not in result.reply
+    assert "human agent" not in result.reply
+    assert session.return_flow is None
+    assert mock_snowflake.RETURNS == []
+
+
+@pytest.mark.parametrize("text", ["a different order", "another order", "my other order"])
+def test_different_order_asks_only_for_order_id(text):
+    session = agent.Session(session_id="s1", verified_email="bob@bookly-demo.com", verified_order_id="BK-1002")
+    result = agent.run_turn(session, "I'd like to return something from " + text)
+    assert "order ID" in result.reply
+    assert "email" not in result.reply
+    assert session.return_flow.order_id is None
+
+
+def test_new_email_does_not_inherit_another_accounts_order():
+    session = agent.Session(session_id="s1", verified_email="bob@bookly-demo.com", verified_order_id="BK-1002")
+    result = agent.run_turn(session, "return something for alice@bookly-demo.com")
     assert "order ID" in result.reply
     assert session.return_flow.order_id is None
+    assert session.return_flow.email == "alice@bookly-demo.com"
+
+
+def test_explicit_new_order_overrides_session_order_and_checks_identity():
+    session = agent.Session(session_id="s1", verified_email="bob@bookly-demo.com", verified_order_id="BK-1002")
+    result = agent.run_turn(session, "return something from BK-1001")
+    assert "couldn't verify" in result.reply
+    assert session.return_flow.order_id is None
+    assert session.return_flow.email is None
+    assert session.verified_order_id == "BK-1002"
+
+
+def test_verified_context_is_not_shared_with_another_session():
+    session = agent.get_session("bob")
+    session.remember_verified_context({"email": "bob@bookly-demo.com", "order_id": "BK-1002"})
+    result = agent.run_turn(agent.get_session("new-customer"), "return something")
+    assert "order ID" in result.reply and "email" in result.reply
+
+
+def test_partial_title_ties_do_not_guess():
+    items = [
+        {"book_title": "Project Hail Mary"},
+        {"book_title": "Hail Mary: A Different Story"},
+    ]
+    assert returns_flow._match_item("hail mary", items) is None
+    assert returns_flow._match_item("project hail mary", items) == items[0]
+
+
+def test_switching_order_during_item_selection_rechecks_the_new_pair():
+    session = agent.Session(session_id="s1")
+    agent.run_turn(session, "return something from BK-1002, bob@bookly-demo.com")
+    result = agent.run_turn(session, "Actually BK-1001, alice@bookly-demo.com, The Hobbit")
+    assert "shipping label" in result.reply
+    assert session.verified_order_id == "BK-1001"
+    assert session.verified_email == "alice@bookly-demo.com"
+    assert result.tool_calls[0]["input"] == {
+        "order_id": "BK-1001", "email": "alice@bookly-demo.com",
+    }
 
 
 # --- looks_like_a_continuation -----------------------------------------
@@ -254,7 +338,7 @@ def test_run_turn_still_classifies_normally_once_the_return_has_both_fields(monk
 
     calls = []
 
-    def _record(client, prior_messages, user_text):
+    def _record(client, prior_messages, user_text, **_overrides):
         calls.append(user_text)
         return "returns_refunds"
 
@@ -363,3 +447,9 @@ def test_a_filed_return_stores_the_model_generated_reason(monkeypatch):
     assert "shipping label" in result.reply
     assert mock_snowflake.RETURNS[0]["reason"] == "Ordered by mistake."
     assert len(client.messages.calls) == 1  # exactly one model call for the whole turn
+
+
+def test_email_at_the_end_of_a_sentence_drops_the_period():
+    from app.returns_flow import _extract_email
+
+    assert _extract_email("The order is BK-1004 and the email is dave@bookly-demo.com.") == "dave@bookly-demo.com"

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bookly Agent Studio</title>
+  <link rel="stylesheet" href="/static/studio/studio.css" />
+</head>
+<body>
+  <div class="shell">
+    <nav class="sidebar" aria-label="Studio sections">
+      <a class="logo" href="#home" title="Bookly Agent Studio">📚</a>
+      <a class="nav-item" data-route="home" href="#home"><span class="nav-icon" aria-hidden="true">⌂</span>Home</a>
+      <a class="nav-item" data-route="convos" href="#convos"><span class="nav-icon" aria-hidden="true">☰</span>Convos</a>
+      <a class="nav-item" data-route="watchtower" href="#watchtower"><span class="nav-icon" aria-hidden="true">◉</span>Watchtower</a>
+      <a class="nav-item" data-route="build" href="#build/aops"><span class="nav-icon" aria-hidden="true">▤</span>Build</a>
+      <a class="nav-item" data-route="tests" href="#tests"><span class="nav-icon" aria-hidden="true">▷</span>Tests</a>
+      <a class="nav-item" data-route="preview" href="#preview"><span class="nav-icon" aria-hidden="true">▣</span>Preview</a>
+    </nav>
+
+    <div class="main-col">
+      <header class="topbar">
+        <div class="workspace">Bookly <span>Agent Studio</span></div>
+        <nav id="subnav" class="subnav" aria-label="Build sections" hidden>
+          <a data-sub="aops" href="#build/aops">AOPs</a>
+          <a data-sub="tools" href="#build/tools">Tools</a>
+          <a data-sub="settings" href="#build/settings">Settings</a>
+          <a data-sub="releases" href="#build/releases">Releases</a>
+        </nav>
+        <div class="topbar-right">
+          <span id="activity" class="activity" role="status" hidden></span>
+          <input id="author" class="author-input" placeholder="Your name" autocomplete="off" aria-label="Your name (shown as the editor on AOPs you save)" title="Shown as the editor on AOPs you save" />
+          <a id="prodBadge" class="prod-badge" href="#build/releases" title="What customers are talking to right now">…</a>
+          <a href="/" target="_blank" rel="noopener" class="link-btn" title="Open the customer chat widget">Widget ↗</a>
+        </div>
+      </header>
+      <main id="view"></main>
+    </div>
+  </div>
+
+  <div id="drawer" class="drawer" hidden>
+    <div class="drawer-panel" role="dialog" aria-modal="true">
+      <button class="drawer-close" aria-label="Close">×</button>
+      <div id="drawerBody"></div>
+    </div>
+  </div>
+  <div id="modal" class="modal" hidden>
+    <div class="modal-panel" role="dialog" aria-modal="true"><div id="modalBody"></div></div>
+  </div>
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <script src="/static/studio/logos.js"></script>
+  <script src="/static/studio/studio.js"></script>
+</body>
+</html>

@@ -27,6 +27,8 @@ import os
 import sys
 from typing import Any
 
+from . import telemetry
+
 # A single classification call is a narrow, single-turn judgment -- a
 # small/fast model is enough, and cheaper than paying for the full model
 # on every message before the real agent starts.
@@ -95,7 +97,7 @@ CLARIFYING_SUGGESTIONS = [
     {"label": "Something else", "value": "Something else", "category": "out_of_scope"},
 ]
 
-_ROUTER_SYSTEM_PROMPT = """You are a strict scope classifier for Bookly's customer support chat -- \
+ROUTER_SYSTEM_PROMPT = """You are a strict scope classifier for Bookly's customer support chat -- \
 you are not the support agent itself and you never answer the customer directly.
 
 Every message you see was typed into Bookly's own support widget, so a \
@@ -162,22 +164,35 @@ no prior decline existed, not further evidence toward out_of_scope.
 
 Call classify_scope exactly once with your answer. Do not write any other \
 text."""
+_ROUTER_SYSTEM_PROMPT = ROUTER_SYSTEM_PROMPT  # old name, kept for scripts/debug_classify.py
 
 
-def classify_intent(client: Any, prior_messages: list[dict[str, Any]], user_text: str) -> str:
+def classify_intent(
+    client: Any,
+    prior_messages: list[dict[str, Any]],
+    user_text: str,
+    *,
+    system_prompt: str | None = None,
+    model: str | None = None,
+) -> str:
     """Classify user_text into one of IN_SCOPE_CATEGORIES, or 'out_of_scope'.
 
     prior_messages is only used to build a little plain-text context --
     never passed through as-is, since it can contain tool_use/tool_result
     blocks shaped for a different tools list than this call uses.
+
+    system_prompt/model override the defaults -- the deployed AgentConfig
+    passes its own (see app/agent_config.py).
     """
     context = _recent_context_text(prior_messages)
     prompt = f"Conversation so far:\n{context}\n\nLatest customer message to classify: {user_text}" if context else user_text
 
-    response = client.messages.create(
-        model=ROUTER_MODEL,
+    response = telemetry.create_message(
+        client,
+        "router",
+        model=model or ROUTER_MODEL,
         max_tokens=MAX_TOKENS,
-        system=_ROUTER_SYSTEM_PROMPT,
+        system=system_prompt or ROUTER_SYSTEM_PROMPT,
         tools=[_TOOL_SCHEMA],
         tool_choice={"type": "tool", "name": _TOOL_NAME},
         messages=[{"role": "user", "content": prompt}],
@@ -204,6 +219,8 @@ def classify_intent(client: Any, prior_messages: list[dict[str, Any]], user_text
 def _recent_context_text(messages: list[dict[str, Any]]) -> str:
     lines = []
     for msg in messages[-MAX_CONTEXT_MESSAGES:]:
+        if msg.get("role") == "system":
+            continue  # operator context for the agent loop, not dialogue
         text = _flatten_text(msg.get("content"))
         if not text:
             continue

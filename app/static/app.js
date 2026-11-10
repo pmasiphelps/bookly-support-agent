@@ -4,6 +4,43 @@ const messagesEl = document.getElementById("messages");
 const form = document.getElementById("composer");
 const input = document.getElementById("input");
 const devToggle = document.getElementById("devToggle");
+const feedbackEl = document.getElementById("feedback");
+
+// CSAT: one thumbs up/down per conversation, shown once the agent has
+// replied. Lands on the conversation in Agent Studio's Monitor tab.
+feedbackEl.querySelectorAll(".feedback-btn").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    try {
+      const res = await fetch("/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId, rating: Number(btn.dataset.rating) }),
+      });
+      if (!res.ok) throw new Error();
+      feedbackEl.querySelectorAll(".feedback-btn").forEach((b) => b.classList.toggle("chosen", b === btn));
+      document.getElementById("feedbackPrompt").textContent = "Thanks for the feedback!";
+    } catch {
+      document.getElementById("feedbackPrompt").textContent = "Couldn't send feedback -- try again?";
+    }
+  });
+});
+
+document.querySelectorAll(".demo-copy").forEach((button) => {
+  button.addEventListener("click", async () => {
+    const text = button.dataset.copy;
+    const status = document.getElementById("demoCopyStatus");
+    try {
+      await navigator.clipboard.writeText(text);
+      status.textContent = `Copied ${text}`;
+    } catch {
+      // Keep the example usable when clipboard access is unavailable.
+      input.value = text;
+      input.focus();
+      input.select();
+      status.textContent = "Added to your message. Edit or send when ready.";
+    }
+  });
+});
 
 // "Dev: show tool calls" -- purely a display toggle. The backend always
 // sends each reply's real tool calls (see ChatResponse.tool_calls in
@@ -91,6 +128,7 @@ async function sendMessage(text, category) {
     pending.textContent = data.reply;
     pending.classList.remove("pending");
     addToolTrace(data.tool_calls);
+    feedbackEl.hidden = false;
     if (data.suggestions && data.suggestions.length) {
       addSuggestions(data.suggestions);
     }

@@ -148,6 +148,30 @@ TOOLS: list[dict[str, Any]] = [
 # TOOL_IMPLEMENTATIONS lookup and this file's own tests key off of.
 FLEXIBLE_LOOP_TOOLS = [t for t in TOOLS if t["name"] not in _RETURNS_FLOW_ONLY_TOOLS]
 
+# Loop tools that exist but are off unless an agent config turns them on
+# (Agent Studio > Build > Tools). Kept out of FLEXIBLE_LOOP_TOOLS so the
+# pre-Studio default agent is unchanged.
+OPTIONAL_LOOP_TOOLS: list[dict[str, Any]] = [
+    {
+        "name": "escalate_to_human",
+        "description": (
+            "Hand this conversation to Bookly's human support team, who follow up "
+            "by email. Use it only when the customer explicitly asks for a person, "
+            "or needs something none of your other tools can do (e.g. issuing a "
+            "reshipment). Never use it to get around an ineligible return. Returns "
+            "a ticket ID to share with the customer."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "reason": {"type": "string", "description": "One sentence: what the customer needs and why you can't do it."},
+                "email": {"type": "string", "description": "The customer's email, if known, so the team can reply."},
+            },
+            "required": ["reason"],
+        },
+    },
+]
+
 
 # ---------------------------------------------------------------------------
 # Implementations
@@ -268,8 +292,32 @@ def initiate_return(order_id: str, order_item_id: str, email: str, reason: str) 
             )
         return {"error": "not_eligible", "message": reason_msg}
 
-    return_id = "RET-" + "".join(random.choices(string.digits, k=6))
     refund = round(item["unit_price"] * item["quantity"], 2)
+
+    # Idempotent: a second call for the same item returns the return already
+    # on file instead of filing a duplicate -- the coded flow guaranteed this
+    # by construction; with a model choosing when to call, the tool must.
+    existing = sf.run_query(
+        """
+        SELECT return_id, requested_refund
+        FROM returns
+        WHERE order_id = %(order_id)s AND order_item_id = %(order_item_id)s
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        {"order_id": order_id, "order_item_id": order_item_id},
+    )
+    if existing:
+        return {
+            "success": True,
+            "already_on_file": True,
+            "return_id": existing[0]["RETURN_ID"],
+            "status": "requested",
+            "book_title": item["book_title"],
+            "estimated_refund": float(existing[0]["REQUESTED_REFUND"]),
+        }
+
+    return_id = "RET-" + "".join(random.choices(string.digits, k=6))
 
     sf.run_write(
         """
@@ -354,7 +402,42 @@ def search_policies(query: str, limit: int = 3) -> dict[str, Any]:
     }
 
 
+# Mocked helpdesk handoff -- a production build would create a ticket in
+# Zendesk/Salesforce/etc. Not Snowflake, so neither data backend sees it.
+ESCALATIONS: list[dict[str, Any]] = []
+
+
+def escalate_to_human(reason: str, email: str | None = None) -> dict[str, Any]:
+    ticket_id = "ESC-" + "".join(random.choices(string.digits, k=5))
+    ESCALATIONS.append({"ticket_id": ticket_id, "reason": reason, "email": email})
+    print(f"[MOCK HELPDESK] Opened {ticket_id}: {reason}")
+    return {
+        "success": True,
+        "ticket_id": ticket_id,
+        "message": "A member of the Bookly support team will follow up by email within one business day.",
+    }
+
+
+def customer_metadata(email: str) -> dict[str, Any]:
+    """Facts about a verified customer that AOPs can reference as
+    {{ customer_name }}, {{ customer_type }}, {{ order_count }}. Not a
+    tool: app/agent.py looks this up after a tool verifies the email."""
+    customer = _find_customer_by_email(email)
+    if not customer:
+        return {}
+    count = sf.run_query(
+        "SELECT order_id FROM orders WHERE customer_id = %(customer_id)s",
+        {"customer_id": customer["CUSTOMER_ID"]},
+    )
+    return {
+        "customer_name": customer["FULL_NAME"].split()[0],
+        "customer_type": "new" if len(count) <= 1 else "returning",
+        "order_count": len(count),
+    }
+
+
 TOOL_IMPLEMENTATIONS = {
+    "escalate_to_human": escalate_to_human,
     "get_order_status": get_order_status,
     "list_orders_for_customer": list_orders_for_customer,
     "initiate_return": initiate_return,

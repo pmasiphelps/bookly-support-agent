@@ -4,19 +4,41 @@ from __future__ import annotations
 
 from typing import Any
 
-from dotenv import load_dotenv
+from .config import load_environment
 
-load_dotenv()  # must run before `agent` (and its Snowflake/Anthropic clients) import
+load_environment()  # must run before `agent` and its clients import
 
-from fastapi import FastAPI
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.types import Scope
 
 from . import agent
+from .studio import deploy as studio_deploy
+from .studio.api import router as studio_router
+from .studio import watchtower as studio_watchtower
+from .studio.evals import SEED_CASES
+from .studio.runtime import execute_turn, production_config_for
+from .studio.store import get_store
 
-app = FastAPI(title="Bookly Support Agent")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # First boot: code defaults become v1 in production + starter tests.
+    def bootstrap() -> None:
+        studio_deploy.ensure_initialized(SEED_CASES)
+        studio_watchtower.ensure_seeded()
+
+    bootstrap()
+    get_store().on_recreate = bootstrap
+    yield
+
+
+app = FastAPI(title="Bookly Support Agent", lifespan=lifespan)
+app.include_router(studio_router)
 
 
 class NoCacheStaticFiles(StaticFiles):
@@ -70,14 +92,32 @@ def index():
     return FileResponse("app/static/index.html", headers={"Cache-Control": "no-store"})
 
 
+@app.get("/studio")
+def studio():
+    return FileResponse("app/static/studio/index.html", headers={"Cache-Control": "no-store"})
+
+
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
-    session = agent.get_session(req.session_id)
-    if req.category:
-        result = agent.run_turn_for_category(session, req.message, req.category)
-    else:
-        result = agent.run_turn(session, req.message)
+    # A new conversation is pinned to the deployed version (or the canary,
+    # for its slice of traffic); every turn is logged for Monitor.
+    session = agent.get_session(req.session_id, config_factory=production_config_for)
+    result, _trace = execute_turn(session, req.message, env="production", category=req.category)
     return ChatResponse(reply=result.reply, suggestions=result.suggestions, tool_calls=result.tool_calls)
+
+
+class FeedbackRequest(BaseModel):
+    session_id: str
+    rating: int  # 1 = thumbs up, -1 = thumbs down
+
+
+@app.post("/feedback")
+def feedback(req: FeedbackRequest):
+    if req.rating not in (1, -1):
+        raise HTTPException(400, "rating must be 1 or -1")
+    if not get_store().set_csat(req.session_id, req.rating):
+        raise HTTPException(404, "No conversation to rate yet")
+    return {"ok": True}
 
 
 @app.get("/health")

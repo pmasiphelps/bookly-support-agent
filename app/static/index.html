@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
+  <div class="app-layout">
   <div class="chat-shell">
     <header>
       <div>
@@ -23,6 +24,13 @@
 
     <div id="messages" class="messages"></div>
 
+    <div id="feedback" class="feedback" hidden>
+      <span id="feedbackPrompt">Was this conversation helpful?</span>
+      <button type="button" class="feedback-btn" data-rating="1" aria-label="Yes, helpful">👍</button>
+      <button type="button" class="feedback-btn" data-rating="-1" aria-label="No, not helpful">👎</button>
+    </div>
+
+
     <form id="composer" class="composer">
       <input
         id="input"
@@ -32,6 +40,34 @@
       />
       <button type="submit">Send</button>
     </form>
+  </div>
+
+    <div class="side-col">
+    <details class="demo-reference">
+      <summary>Demo order details</summary>
+      <div class="demo-examples">
+        <div class="demo-example">
+          <div><span class="demo-scenario">Successful return</span><span class="demo-credentials">BK-1001, alice@bookly-demo.com</span></div>
+          <button type="button" class="demo-copy" data-copy="BK-1001, alice@bookly-demo.com" aria-label="Copy Alice's order number and email">Copy</button>
+        </div>
+        <div class="demo-example">
+          <div><span class="demo-scenario">Order in transit</span><span class="demo-credentials">BK-1002, bob@bookly-demo.com</span></div>
+          <button type="button" class="demo-copy" data-copy="BK-1002, bob@bookly-demo.com" aria-label="Copy Bob's order number and email">Copy</button>
+        </div>
+        <div class="demo-example">
+          <div><span class="demo-scenario">Return window expired</span><span class="demo-credentials">BK-1004, dave@bookly-demo.com</span></div>
+          <button type="button" class="demo-copy" data-copy="BK-1004, dave@bookly-demo.com" aria-label="Copy Dave's order number and email">Copy</button>
+        </div>
+        <div class="demo-example">
+          <div><span class="demo-scenario">Identity mismatch</span><span class="demo-credentials">BK-1001, notalice@example.com</span></div>
+          <button type="button" class="demo-copy" data-copy="BK-1001, notalice@example.com" aria-label="Copy the identity mismatch example">Copy</button>
+        </div>
+        <p id="demoCopyStatus" role="status">Copy a pair, then paste it into your message.</p>
+      </div>
+    </details>
+
+    <a class="studio-link" href="/studio" target="_blank" rel="noopener">Open Agent Studio ↗<span>Build, test, deploy &amp; monitor this agent</span></a>
+    </div>
   </div>
 
   <script src="/static/app.js"></script>

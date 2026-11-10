@@ -117,6 +117,7 @@ def test_verification_is_captured_from_a_successful_identity_tool_call():
     )
     assert "error" not in result
     assert session.verified_email == "alice@bookly-demo.com"
+    assert session.verified_order_id == "BK-1001"
 
 
 def test_verification_is_not_captured_on_identity_mismatch():
@@ -126,3 +127,73 @@ def test_verification_is_not_captured_on_identity_mismatch():
     )
     assert result["error"] == "identity_mismatch"
     assert session.verified_email is None
+    assert session.verified_order_id is None
+
+
+def test_changing_verified_account_clears_the_previous_order():
+    session = agent.Session(session_id="s1", verified_email="alice@bookly-demo.com", verified_order_id="BK-1001")
+    agent._execute_tool("list_orders_for_customer", {"email": "bob@bookly-demo.com"}, session)
+    assert session.verified_email == "bob@bookly-demo.com"
+    assert session.verified_order_id is None
+
+
+def test_system_prompt_stays_fixed_and_context_is_appended_once(monkeypatch):
+    # Current models bind thinking blocks to the system prompt they were
+    # produced under, so it must not change mid-conversation; a newly
+    # verified identity arrives as an appended system message instead.
+    script = [
+        FakeResponse(
+            content=[ToolUseBlock(id="t1", name="get_order_status",
+                                  input={"order_id": "BK-1001", "email": "alice@bookly-demo.com"})],
+            stop_reason="tool_use",
+        ),
+        FakeResponse(content=[TextBlock("Delivered.")], stop_reason="end_turn"),
+        FakeResponse(content=[TextBlock("Anything else?")], stop_reason="end_turn"),
+    ]
+    client = _use_scripted_client(monkeypatch, script)
+    session = agent.Session(session_id="s")
+
+    agent.run_turn(session, "BK-1001, alice@bookly-demo.com")
+    agent.run_turn(session, "thanks")
+
+    systems = {call["system"] for call in client.messages.calls}
+    assert len(systems) == 1
+    context_messages = [m for m in session.messages if m["role"] == "system"]
+    assert len(context_messages) == 1
+    assert "alice@bookly-demo.com" in context_messages[0]["content"]
+    # Appended right after the tool result that verified the customer, then
+    # the model's reply -- never edited into earlier history.
+    idx = session.messages.index(context_messages[0])
+    assert session.messages[idx - 1]["content"][0]["type"] == "tool_result"
+    assert session.messages[idx + 1]["role"] == "assistant"
+
+
+def test_falls_back_to_system_prompt_context_when_model_rejects_system_messages(monkeypatch):
+    import anthropic as anthropic_sdk
+    import httpx2
+
+    class _RejectingMessages:
+        def __init__(self):
+            self.calls = []
+
+        def create(self, **kwargs):
+            self.calls.append(kwargs)
+            if any(m["role"] == "system" for m in kwargs["messages"]):
+                request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+                raise anthropic_sdk.BadRequestError(
+                    "role 'system' is not supported on this model",
+                    response=httpx2.Response(400, request=request), body=None,
+                )
+            return FakeResponse(content=[TextBlock("ok")], stop_reason="end_turn")
+
+    client = type("C", (), {})()
+    client.messages = _RejectingMessages()
+    monkeypatch.setattr(agent, "_get_client", lambda: client)
+    monkeypatch.setattr(agent, "_NO_SYSTEM_MESSAGE_MODELS", set())
+    session = agent.Session(session_id="s", verified_email="alice@bookly-demo.com")
+
+    result = agent.run_turn(session, "how long does shipping take?")
+
+    assert result.reply == "ok"
+    assert "alice@bookly-demo.com" in client.messages.calls[-1]["system"]
+    assert all(m["role"] != "system" for m in client.messages.calls[-1]["messages"])
